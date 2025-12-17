@@ -6,7 +6,15 @@ work_dir = "./work-dir"
 # 可选: BIJIAN / JIANYING / WHISPER_API / FASTER_WHISPER / WHISPER_CPP
 model = "FASTER_WHISPER"
 language = "en"
+# 是否生成“字/词级时间戳”中间字幕（用于后续字幕断句）。
+# 注意：当前实现中，若 need_word_time_stamp=true，会强制 FasterWhisper 使用 one_word=1（逐词切段）作为中间结果，
+# 以便 subtitle 阶段再用 LLM 断句合并；此时在 [transcribe.faster_whisper] 里把 one_word 设为 false 不会生效。
 need_word_time_stamp = true
+# 长音频分块转录参数（单位：秒）。不填则使用内部默认值。
+# 对于 FasterWhisper(cuda) 一般不建议把 chunk_concurrency 调大（会同时起多个进程占用 GPU）。
+# chunk_length_sec = 1200
+# chunk_overlap_sec = 10
+# chunk_concurrency = 1
 # SRT / ASS / VTT / TXT / ALL
 output_format = "SRT"
 
@@ -19,7 +27,7 @@ vad_filter = true
 vad_method = "silero_v4" # 例如 silero_v4 / pyannote_v3 ...
 vad_threshold = 0.4
 ff_mdx_kim2 = false
-one_word = true
+one_word = true          # 仅当 need_word_time_stamp=false 时才有意义（否则会被强制为 true）
 prompt = ""
 # 可选：显式指定可执行文件路径或名字（如果不在 PATH 里推荐用绝对路径）
 # program = "/usr/local/bin/faster-whisper-xxl"
@@ -67,4 +75,3 @@ video_quality = "MEDIUM"
 #language = "zh"
 #[profiles.gpu_zh.subtitle]
 #target_language = "SIMPLIFIED_CHINESE"
-

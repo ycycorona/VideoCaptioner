@@ -485,6 +485,11 @@ class TranscribeConfig:
     transcribe_model: Optional[TranscribeModelEnum] = None
     transcribe_language: str = ""
     need_word_time_stamp: bool = True
+    # Chunked ASR 配置（单位：秒）
+    # 用于长音频分块转录与并发处理；本地 GPU/CPU 转录默认更保守（见 asr/transcribe.py）。
+    chunk_length_sec: Optional[int] = None
+    chunk_overlap_sec: Optional[int] = None
+    chunk_concurrency: Optional[int] = None
     output_format: Optional[TranscribeOutputFormatEnum] = None
     # Whisper Cpp 配置
     whisper_model: Optional[WhisperModelEnum] = None
@@ -519,6 +524,15 @@ class TranscribeConfig:
         )
         lines.append(f"Language: {self.transcribe_language or 'Auto'}")
         lines.append(f"Word Timestamp: {self.need_word_time_stamp}")
+        if (
+            self.chunk_length_sec is not None
+            or self.chunk_overlap_sec is not None
+            or self.chunk_concurrency is not None
+        ):
+            lines.append("Chunked ASR:")
+            lines.append(f"  Chunk Length (sec): {self.chunk_length_sec or 'Default'}")
+            lines.append(f"  Chunk Overlap (sec): {self.chunk_overlap_sec or 'Default'}")
+            lines.append(f"  Chunk Concurrency: {self.chunk_concurrency or 'Default'}")
         lines.append(f"Output Format: {self.output_format.value if self.output_format else 'None'}")
 
         if self.transcribe_model == TranscribeModelEnum.WHISPER_API:

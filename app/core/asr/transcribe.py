@@ -1,6 +1,11 @@
 from app.core.asr.asr_data import ASRData
 from app.core.asr.bcut import BcutASR
-from app.core.asr.chunked_asr import ChunkedASR
+from app.core.asr.chunked_asr import (
+    DEFAULT_CHUNK_CONCURRENCY,
+    DEFAULT_CHUNK_LENGTH_SEC,
+    DEFAULT_CHUNK_OVERLAP_SEC,
+    ChunkedASR,
+)
 from app.core.asr.faster_whisper import FasterWhisperASR
 from app.core.asr.jianying import JianYingASR
 from app.core.asr.whisper_api import WhisperAPI
@@ -80,7 +85,12 @@ def _create_jianying_asr(audio_path: str, config: TranscribeConfig) -> ChunkedAS
         "need_word_time_stamp": config.need_word_time_stamp,
     }
     return ChunkedASR(
-        asr_class=JianYingASR, audio_path=audio_path, asr_kwargs=asr_kwargs
+        asr_class=JianYingASR,
+        audio_path=audio_path,
+        asr_kwargs=asr_kwargs,
+        chunk_length=config.chunk_length_sec or DEFAULT_CHUNK_LENGTH_SEC,
+        chunk_overlap=config.chunk_overlap_sec or DEFAULT_CHUNK_OVERLAP_SEC,
+        chunk_concurrency=config.chunk_concurrency or DEFAULT_CHUNK_CONCURRENCY,
     )
 
 
@@ -90,7 +100,14 @@ def _create_bijian_asr(audio_path: str, config: TranscribeConfig) -> ChunkedASR:
         "use_cache": True,
         "need_word_time_stamp": config.need_word_time_stamp,
     }
-    return ChunkedASR(asr_class=BcutASR, audio_path=audio_path, asr_kwargs=asr_kwargs)
+    return ChunkedASR(
+        asr_class=BcutASR,
+        audio_path=audio_path,
+        asr_kwargs=asr_kwargs,
+        chunk_length=config.chunk_length_sec or DEFAULT_CHUNK_LENGTH_SEC,
+        chunk_overlap=config.chunk_overlap_sec or DEFAULT_CHUNK_OVERLAP_SEC,
+        chunk_concurrency=config.chunk_concurrency or DEFAULT_CHUNK_CONCURRENCY,
+    )
 
 
 def _create_whisper_cpp_asr(audio_path: str, config: TranscribeConfig) -> ChunkedASR:
@@ -105,8 +122,9 @@ def _create_whisper_cpp_asr(audio_path: str, config: TranscribeConfig) -> Chunke
         asr_class=WhisperCppASR,
         audio_path=audio_path,
         asr_kwargs=asr_kwargs,
-        chunk_concurrency=1,  # 本地转录使用单线程
-        chunk_length=60 * 20,  # 每块20分钟
+        chunk_concurrency=config.chunk_concurrency or 1,  # 本地转录默认单线程
+        chunk_length=config.chunk_length_sec or 60 * 20,  # 默认每块20分钟
+        chunk_overlap=config.chunk_overlap_sec or 10,
     )
 
 
@@ -122,7 +140,12 @@ def _create_whisper_api_asr(audio_path: str, config: TranscribeConfig) -> Chunke
         "prompt": config.whisper_api_prompt or "",
     }
     return ChunkedASR(
-        asr_class=WhisperAPI, audio_path=audio_path, asr_kwargs=asr_kwargs
+        asr_class=WhisperAPI,
+        audio_path=audio_path,
+        asr_kwargs=asr_kwargs,
+        chunk_length=config.chunk_length_sec or DEFAULT_CHUNK_LENGTH_SEC,
+        chunk_overlap=config.chunk_overlap_sec or DEFAULT_CHUNK_OVERLAP_SEC,
+        chunk_concurrency=config.chunk_concurrency or DEFAULT_CHUNK_CONCURRENCY,
     )
 
 
@@ -153,8 +176,9 @@ def _create_faster_whisper_asr(audio_path: str, config: TranscribeConfig) -> Chu
         asr_class=FasterWhisperASR,
         audio_path=audio_path,
         asr_kwargs=asr_kwargs,
-        chunk_concurrency=1,  # 本地转录使用单线程
-        chunk_length=60 * 20,  # 每块20分钟
+        chunk_concurrency=config.chunk_concurrency or 1,  # 本地转录默认单线程（多并发会起多个进程，可能占满GPU）
+        chunk_length=config.chunk_length_sec or 60 * 20,  # 默认每块20分钟
+        chunk_overlap=config.chunk_overlap_sec or 10,
     )
 
 

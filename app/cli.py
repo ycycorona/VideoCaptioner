@@ -62,6 +62,7 @@ DEFAULT_MEDIA_EXTS = {
     ".m4a",
     ".flac",
     ".opus",
+    ".ogg",
 }
 
 
@@ -226,9 +227,23 @@ def _collect_inputs(
 
     seen: set[Path] = set()
     out: list[str] = []
+    saw_dir = False
     for p in collected:
         rp = p.resolve()
-        if not rp.exists() or not rp.is_file():
+        if not rp.exists():
+            continue
+        if rp.is_dir():
+            saw_dir = True
+            for child in _iter_files_in_dir(rp, recursive=recursive):
+                crp = child.resolve()
+                if exts and crp.suffix.lower() not in exts:
+                    continue
+                if crp in seen:
+                    continue
+                seen.add(crp)
+                out.append(str(crp))
+            continue
+        if not rp.is_file():
             continue
         if exts and rp.suffix.lower() not in exts:
             continue
@@ -238,6 +253,16 @@ def _collect_inputs(
         out.append(str(rp))
 
     if not out:
+        if saw_dir and exts:
+            raise ValueError(
+                "No valid input files found in directory inputs after filtering. "
+                "Try adding `--recursive` or extending `--ext`."
+            )
+        if saw_dir:
+            raise ValueError(
+                "No valid input files found in directory inputs. "
+                "Try adding `--recursive` or check the directory contains media files."
+            )
         raise ValueError("No valid input files after filtering.")
 
     return sorted(out)
@@ -285,6 +310,16 @@ def build_transcribe_config(cfg: Dict[str, Any]) -> TranscribeConfig:
         language = ""
 
     need_word_time_stamp = _get_bool(transcribe_cfg, "need_word_time_stamp", True)
+
+    chunk_length_sec = transcribe_cfg.get("chunk_length_sec", None)
+    if chunk_length_sec is not None and not isinstance(chunk_length_sec, int):
+        raise ValueError("Invalid int config: transcribe.chunk_length_sec")
+    chunk_overlap_sec = transcribe_cfg.get("chunk_overlap_sec", None)
+    if chunk_overlap_sec is not None and not isinstance(chunk_overlap_sec, int):
+        raise ValueError("Invalid int config: transcribe.chunk_overlap_sec")
+    chunk_concurrency = transcribe_cfg.get("chunk_concurrency", None)
+    if chunk_concurrency is not None and not isinstance(chunk_concurrency, int):
+        raise ValueError("Invalid int config: transcribe.chunk_concurrency")
 
     output_format_raw = _get_str(transcribe_cfg, "output_format", "SRT").upper()
     # TranscribeOutputFormatEnum uses values like "SRT"/"All" but we prefer names here
@@ -347,6 +382,9 @@ def build_transcribe_config(cfg: Dict[str, Any]) -> TranscribeConfig:
         transcribe_model=transcribe_model,
         transcribe_language=language,
         need_word_time_stamp=need_word_time_stamp,
+        chunk_length_sec=chunk_length_sec,
+        chunk_overlap_sec=chunk_overlap_sec,
+        chunk_concurrency=chunk_concurrency,
         output_format=output_format,
         whisper_model=whisper_model,
         whisper_api_key=_get_str(whisper_api_cfg, "api_key", ""),
@@ -791,7 +829,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_transcribe = sub.add_parser("transcribe", help="Transcribe a video/audio to subtitle files")
     _add_common_args(p_transcribe)
-    p_transcribe.add_argument("--input", action="append", help="Input video/audio file path (repeatable)")
+    p_transcribe.add_argument(
+        "--input",
+        action="append",
+        help="Input video/audio file path (repeatable). Directories are allowed (treated like --input-dir).",
+    )
     p_transcribe.add_argument("--glob", action="append", help="Glob pattern (repeatable, e.g. '/data/in/*.mp4')")
     p_transcribe.add_argument("--input-dir", default=None, help="Input directory for batch processing")
     p_transcribe.add_argument("--recursive", action="store_true", help="Scan --input-dir recursively")
@@ -834,7 +876,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_full = sub.add_parser("full", help="Full pipeline: transcribe -> subtitle -> synthesize")
     _add_common_args(p_full)
-    p_full.add_argument("--input", action="append", help="Input video file path (repeatable)")
+    p_full.add_argument(
+        "--input",
+        action="append",
+        help="Input video file path (repeatable). Directories are allowed (treated like --input-dir).",
+    )
     p_full.add_argument("--glob", action="append", help="Glob pattern (repeatable, e.g. '/data/in/*.mp4')")
     p_full.add_argument("--input-dir", default=None, help="Input directory for batch processing")
     p_full.add_argument("--recursive", action="store_true", help="Scan --input-dir recursively")
@@ -892,7 +938,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     try:
         if args.cmd == "transcribe":
-            batch_mode = bool(args.input_dir or args.glob) or (args.input and len(args.input) > 1)
+            has_dir_input = any(
+                Path(p).expanduser().exists() and Path(p).expanduser().is_dir()
+                for p in (args.input or [])
+            )
+            batch_mode = bool(args.input_dir or args.glob or has_dir_input) or (args.input and len(args.input) > 1)
             exts = _normalize_exts(args.ext) if args.ext else (DEFAULT_MEDIA_EXTS if batch_mode else set())
             input_paths = _collect_inputs(
                 inputs=args.input,
@@ -960,7 +1010,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             scfg = build_subtitle_config(cfg)
             ycfg = build_synthesis_config(cfg)
 
-            batch_mode = bool(args.input_dir or args.glob) or (args.input and len(args.input) > 1)
+            has_dir_input = any(
+                Path(p).expanduser().exists() and Path(p).expanduser().is_dir()
+                for p in (args.input or [])
+            )
+            batch_mode = bool(args.input_dir or args.glob or has_dir_input) or (args.input and len(args.input) > 1)
             exts = _normalize_exts(args.ext) if args.ext else (DEFAULT_MEDIA_EXTS if batch_mode else set())
             input_paths = _collect_inputs(
                 inputs=args.input,

@@ -145,6 +145,7 @@ python main.py
   - 扫描目录：`python -m app.cli transcribe --config config.example.toml --input-dir /data/in --recursive --continue-on-error`
   - 通配符：`python -m app.cli full --config config.example.toml --glob '/data/in/*.mp4' --output-dir /data/out --continue-on-error`
   - 多个输入：`python -m app.cli transcribe --config config.example.toml --input a.mp4 --input b.mp4 --out-dir /data/subs`
+  - 也支持把目录直接当作 `--input`：`python -m app.cli transcribe --config config.example.toml --input /data/in`
 
 说明：
 - 若使用 `FASTER_WHISPER(cuda)`，请确保 `faster-whisper-xxl` 可执行文件在 `PATH` 中，或在 `config.example.toml` 的 `[transcribe.faster_whisper] program` 指定绝对路径。

@@ -22,6 +22,9 @@
     - `--glob` 通配符
     - `--input-dir`（可选 `--recursive`）
     - `--continue-on-error` 失败不中断（可选）
+  - 转录分块参数可配置（`[transcribe]`）：
+    - `chunk_length_sec` / `chunk_overlap_sec` / `chunk_concurrency`
+    - FasterWhisper(cuda) 默认更保守（建议 `chunk_concurrency=1`）
 
 ### 2) TOML 配置示例
 
