@@ -23,7 +23,10 @@ from typing import Any, Dict, Iterable, Optional, Sequence, Tuple, Type, TypeVar
 try:
     import tomllib  # Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover
-    tomllib = None  # type: ignore
+    try:  # Python 3.10/3.9 fallback
+        import tomli as tomllib  # type: ignore
+    except ModuleNotFoundError:  # pragma: no cover
+        tomllib = None  # type: ignore
 
 from app.config import MODEL_PATH, SUBTITLE_STYLE_PATH, WORK_PATH
 from app.core.entities import (
@@ -80,7 +83,7 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
 def load_config(config_path: str, profile: Optional[str]) -> Dict[str, Any]:
     if tomllib is None:  # pragma: no cover
         raise RuntimeError(
-            "tomllib is not available. Please use Python 3.11+ for TOML support."
+            "TOML parser not available. Use Python 3.11+ (tomllib) or install tomli for Python < 3.11: `pip install tomli`."
         )
     raw = Path(config_path).expanduser().resolve()
     if not raw.exists():
