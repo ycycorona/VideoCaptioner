@@ -14,8 +14,11 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import re
 import sys
 import tempfile
+import time
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Sequence, Tuple, Type, TypeVar
@@ -512,15 +515,85 @@ def _progress_printer(prefix: str):
     return _cb
 
 
+def _format_seconds(seconds: float) -> str:
+    if seconds < 0:
+        seconds = 0
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h:d}:{m:02d}:{s:02d}"
+    return f"{m:d}:{s:02d}"
+
+
+def _get_wav_duration_seconds(wav_path: str) -> Optional[float]:
+    try:
+        with wave.open(wav_path, "rb") as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+            if rate <= 0:
+                return None
+            return frames / float(rate)
+    except Exception:
+        return None
+
+
+_WORD_RE = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?")
+
+
+def _count_text_stats(texts: Sequence[str]) -> tuple[int, int]:
+    """Return (char_count, word_count). char_count excludes whitespace."""
+    char_count = 0
+    word_count = 0
+    for t in texts:
+        if not t:
+            continue
+        char_count += len(re.sub(r"\s+", "", t))
+        word_count += len(_WORD_RE.findall(t))
+    return char_count, word_count
+
+
+@dataclass(frozen=True)
+class TranscribeRunResult:
+    input_path: str
+    srt_path: Path
+    audio_duration_sec: Optional[float]
+    segment_count: int
+    char_count: int
+    word_count: int
+    elapsed_total_sec: float
+    elapsed_ffmpeg_sec: float
+    elapsed_asr_sec: float
+
+    def log_summary(self) -> None:
+        audio_s = self.audio_duration_sec
+        audio_str = f"{audio_s:.1f}s" if audio_s is not None else "unknown"
+        speed = ""
+        if audio_s is not None and self.elapsed_asr_sec > 0:
+            speed = f", speed={audio_s/self.elapsed_asr_sec:.2f}x"
+        logger.info(
+            "Summary: audio=%s, segments=%d, chars=%d, words=%d, time=%s (ffmpeg=%s, asr=%s%s) -> %s",
+            audio_str,
+            self.segment_count,
+            self.char_count,
+            self.word_count,
+            _format_seconds(self.elapsed_total_sec),
+            _format_seconds(self.elapsed_ffmpeg_sec),
+            _format_seconds(self.elapsed_asr_sec),
+            speed,
+            self.srt_path,
+        )
+
+
 def run_transcribe(
     input_path: str,
     transcribe_config: TranscribeConfig,
     run_dir: Path,
     output_base: Optional[Path] = None,
     ensure_srt_for_next: bool = False,
-) -> Path:
+) -> TranscribeRunResult:
     from app.core.asr.transcribe import transcribe  # lazy import (no GUI dependency)
 
+    t0 = time.perf_counter()
     in_path = Path(input_path).expanduser().resolve()
     if not in_path.exists():
         raise FileNotFoundError(f"Input file not found: {in_path}")
@@ -539,15 +612,19 @@ def run_transcribe(
         temp_audio_path = tmp.name
 
     try:
+        t_ffmpeg0 = time.perf_counter()
         if not video2audio(str(in_path), output=temp_audio_path, audio_track_index=0):
             raise RuntimeError("Audio extraction failed (ffmpeg).")
+        t_ffmpeg1 = time.perf_counter()
 
         logger.info("Running ASR...")
+        t_asr0 = time.perf_counter()
         asr_data = transcribe(
             temp_audio_path,
             transcribe_config,
             callback=_progress_printer("ASR"),
         )
+        t_asr1 = time.perf_counter()
 
         # Decide export formats
         formats_to_export: list[str] = []
@@ -581,7 +658,22 @@ def run_transcribe(
             asr_data.save(str(srt_path))
             logger.info("Saved SRT: %s", srt_path)
 
-        return srt_path
+        audio_duration = _get_wav_duration_seconds(temp_audio_path)
+        texts = [seg.text for seg in asr_data.segments]
+        char_count, word_count = _count_text_stats(texts)
+        result = TranscribeRunResult(
+            input_path=str(in_path),
+            srt_path=srt_path,
+            audio_duration_sec=audio_duration,
+            segment_count=len(asr_data.segments),
+            char_count=char_count,
+            word_count=word_count,
+            elapsed_total_sec=time.perf_counter() - t0,
+            elapsed_ffmpeg_sec=t_ffmpeg1 - t_ffmpeg0,
+            elapsed_asr_sec=t_asr1 - t_asr0,
+        )
+        result.log_summary()
+        return result
     finally:
         Path(temp_audio_path).unlink(missing_ok=True)
 
@@ -954,6 +1046,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
             tcfg = build_transcribe_config(cfg)
             failures = 0
+            total_audio_sec = 0.0
+            total_elapsed_sec = 0.0
+            audio_known = 0
             for i, input_path in enumerate(input_paths, 1):
                 try:
                     run_dir = _resolve_run_dir_for_input(paths, input_path, args.run_dir, batch=len(input_paths) > 1)
@@ -964,19 +1059,34 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         output_base = out_dir / Path(input_path).stem
 
                     logger.info("(%s/%s) Transcribe: %s", i, len(input_paths), input_path)
-                    run_transcribe(
+                    result = run_transcribe(
                         input_path=input_path,
                         transcribe_config=tcfg,
                         run_dir=run_dir,
                         output_base=output_base,
                         ensure_srt_for_next=False,
                     )
+                    total_elapsed_sec += result.elapsed_total_sec
+                    if result.audio_duration_sec is not None:
+                        total_audio_sec += result.audio_duration_sec
+                        audio_known += 1
                 except Exception as e:
                     failures += 1
                     logger.exception("Transcribe failed for %s: %s", input_path, e)
                     if not args.continue_on_error:
                         raise
 
+            if len(input_paths) > 1:
+                audio_str = (
+                    f"{total_audio_sec/3600:.2f}h" if audio_known else "unknown"
+                )
+                logger.info(
+                    "Batch summary: files=%d, audio=%s, time=%s, failures=%d",
+                    len(input_paths),
+                    audio_str,
+                    _format_seconds(total_elapsed_sec),
+                    failures,
+                )
             return 2 if failures else 0
 
         if args.cmd == "subtitle":
@@ -1038,10 +1148,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             for i, input_path in enumerate(input_paths, 1):
                 try:
                     logger.info("(%s/%s) Full pipeline: %s", i, len(input_paths), input_path)
+                    t_file0 = time.perf_counter()
                     run_dir = _resolve_run_dir_for_input(paths, input_path, args.run_dir, batch=len(input_paths) > 1)
 
                     # Ensure we have SRT output for the next stage
-                    srt_path = run_transcribe(
+                    tr = run_transcribe(
                         input_path=input_path,
                         transcribe_config=tcfg,
                         run_dir=run_dir,
@@ -1049,7 +1160,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     )
 
                     processed_sub_path = run_subtitle(
-                        subtitle_path=str(srt_path),
+                        subtitle_path=str(tr.srt_path),
                         subtitle_config=scfg,
                         run_dir=run_dir,
                         output_path=None,
@@ -1071,6 +1182,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         synthesis_config=ycfg,
                         run_dir=run_dir,
                         output_path=output_video_path,
+                    )
+                    logger.info(
+                        "File summary: time=%s (includes transcribe/subtitle/synthesize)",
+                        _format_seconds(time.perf_counter() - t_file0),
                     )
                 except Exception as e:
                     failures += 1
