@@ -913,6 +913,11 @@ def run_synthesis(
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", required=True, help="Path to TOML config file")
     parser.add_argument("--profile", default=None, help="Optional profile name under [profiles.<name>]")
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable all caches (ASR/translate/LLM) for this run",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1024,6 +1029,12 @@ def _resolve_run_dir_for_input(
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if getattr(args, "no_cache", False):
+        from app.core.utils.cache import disable_cache
+
+        disable_cache()
+        logger.info("Cache disabled for this run (--no-cache)")
 
     cfg = load_config(args.config, args.profile)
     paths = RuntimePaths.from_cfg(cfg)

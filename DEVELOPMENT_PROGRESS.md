@@ -25,6 +25,7 @@
   - 转录分块参数可配置（`[transcribe]`）：
     - `chunk_length_sec` / `chunk_overlap_sec` / `chunk_concurrency`
     - FasterWhisper(cuda) 默认更保守（建议 `chunk_concurrency=1`）
+  - 支持 `--no-cache`：本次运行禁用 ASR/翻译/LLM 缓存（便于调参后强制重跑）
 
 ### 2) TOML 配置示例
 

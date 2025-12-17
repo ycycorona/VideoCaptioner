@@ -7,7 +7,7 @@ from typing import Callable, List, Optional
 from app.core.asr.asr_data import ASRData, ASRDataSeg
 from app.core.entities import SubtitleProcessData
 from app.core.translate.types import TargetLanguage
-from app.core.utils.cache import generate_cache_key, get_translate_cache
+from app.core.utils.cache import generate_cache_key, get_translate_cache, is_cache_enabled
 from app.core.utils.logger import setup_logger
 
 logger = setup_logger("subtitle_translator")
@@ -112,16 +112,18 @@ class BaseTranslator(ABC):
         """安全的翻译块"""
         try:
             cache_key = self._get_cache_key(chunk)
-            cached_result = self._cache.get(cache_key, default=None)
-            if cached_result is not None:
-                return cached_result
+            if is_cache_enabled():
+                cached_result = self._cache.get(cache_key, default=None)
+                if cached_result is not None:
+                    return cached_result
 
             result = self._translate_chunk(chunk)
 
             if self.update_callback:
                 self.update_callback(result)
 
-            self._cache.set(cache_key, result, expire=86400 * 7)
+            if is_cache_enabled():
+                self._cache.set(cache_key, result, expire=86400 * 7)
             return result
 
         except Exception as e:
