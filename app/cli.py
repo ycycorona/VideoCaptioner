@@ -740,7 +740,7 @@ def run_subtitle(
         logger.info("Converting subtitle to word-level segments...")
         asr_data.split_to_word_segments()
         words_path = subtitle_dir / f"{in_path.stem}.words.srt"
-        asr_data.save(str(words_path))
+        asr_data.save(str(words_path), layout=SubtitleLayoutEnum.ONLY_ORIGINAL)
         logger.info("Saved word-level subtitle: %s", words_path)
 
     # Determine if we need LLM
@@ -771,7 +771,7 @@ def run_subtitle(
         )
         asr_data = splitter.split_subtitle(asr_data)
         split_path = subtitle_dir / f"{in_path.stem}.split.srt"
-        asr_data.save(str(split_path))
+        asr_data.save(str(split_path), layout=SubtitleLayoutEnum.ONLY_ORIGINAL)
         logger.info("Saved split subtitle: %s", split_path)
 
     # 3) Optimize (LLM)
@@ -787,7 +787,7 @@ def run_subtitle(
         asr_data = optimizer.optimize_subtitle(asr_data)
         asr_data.remove_punctuation()
         opt_path = subtitle_dir / f"{in_path.stem}.optimized.srt"
-        asr_data.save(str(opt_path))
+        asr_data.save(str(opt_path), layout=SubtitleLayoutEnum.ONLY_ORIGINAL)
         logger.info("Saved optimized subtitle: %s", opt_path)
 
     # 4) Translate
@@ -842,7 +842,7 @@ def run_subtitle(
         asr_data = translator.translate_subtitle(asr_data)
         asr_data.remove_punctuation()
         tr_path = subtitle_dir / f"{in_path.stem}.translated.srt"
-        asr_data.save(str(tr_path))
+        asr_data.save(str(tr_path), layout=subtitle_config.subtitle_layout)
         logger.info("Saved translated subtitle: %s", tr_path)
 
         if export_layouts and video_path:
