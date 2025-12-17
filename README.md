@@ -128,6 +128,28 @@ python main.py
 
 </details>
 
+## CLI（Linux 服务器 / 无界面）
+
+仓库已提供纯命令行入口（不依赖 GUI 界面），适用于 Linux 服务器/容器环境：
+
+- 配置文件示例：`config.example.toml`
+- 运行全流程（转录 → 断句/优化/翻译 → 合成）：
+  - `python -m app.cli full --config config.example.toml --input /path/video.mp4`
+- 仅转录：
+  - `python -m app.cli transcribe --config config.example.toml --input /path/video.mp4`
+- 仅字幕处理（对已有字幕断句/优化/翻译）：
+  - `python -m app.cli subtitle --config config.example.toml --input /path/raw.srt --video /path/video.mp4`
+- 仅合成：
+  - `python -m app.cli synthesize --config config.example.toml --video /path/video.mp4 --subtitle /path/subtitle.ass`
+- 批量输入（示例）：
+  - 扫描目录：`python -m app.cli transcribe --config config.example.toml --input-dir /data/in --recursive --continue-on-error`
+  - 通配符：`python -m app.cli full --config config.example.toml --glob '/data/in/*.mp4' --output-dir /data/out --continue-on-error`
+  - 多个输入：`python -m app.cli transcribe --config config.example.toml --input a.mp4 --input b.mp4 --out-dir /data/subs`
+
+说明：
+- 若使用 `FASTER_WHISPER(cuda)`，请确保 `faster-whisper-xxl` 可执行文件在 `PATH` 中，或在 `config.example.toml` 的 `[transcribe.faster_whisper] program` 指定绝对路径。
+- 需要 `ffmpeg` 用于音频提取与字幕压制。
+
 ## 基本配置
 
 ### 1. LLM API 配置说明

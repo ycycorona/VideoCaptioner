@@ -97,20 +97,58 @@ class FasterWhisperASR(BaseASR):
             self.sentence = True
 
         # 根据设备选择程序
-        if self.device == "cpu":
-            if shutil.which("faster-whisper-xxl"):
-                self.faster_whisper_program = "faster-whisper-xxl"
-            else:
-                if not shutil.which("faster-whisper"):
-                    raise EnvironmentError("faster-whisper程序未找到，请确保已经下载。")
-                self.faster_whisper_program = "faster-whisper"
-                self.vad_method = ""
-        elif self.device == "cuda":
-            if not shutil.which("faster-whisper-xxl"):
+        def _resolve_program(program: str) -> str:
+            """Resolve binary name/path to an executable.
+
+            Accepts either a name in PATH or an absolute/relative path.
+            Returns the resolved executable (path or name).
+            """
+            p = program.strip()
+            if not p:
+                return ""
+
+            path = Path(p)
+            if path.is_file():
+                return str(path)
+
+            resolved = shutil.which(p)
+            return resolved or ""
+
+        provided = (faster_whisper_program or "").strip()
+
+        if provided:
+            resolved = _resolve_program(provided)
+            if not resolved:
                 raise EnvironmentError(
-                    "faster-whisper-xxl 程序未找到，请确保已经下载。"
+                    f"faster-whisper 程序未找到: {provided}（请确认其在 PATH 中或提供可执行文件路径）"
                 )
-            self.faster_whisper_program = "faster-whisper-xxl"
+            self.faster_whisper_program = resolved
+        else:
+            if self.device == "cpu":
+                resolved_xxl = _resolve_program("faster-whisper-xxl")
+                if resolved_xxl:
+                    self.faster_whisper_program = resolved_xxl
+                else:
+                    resolved_cpu = _resolve_program("faster-whisper")
+                    if not resolved_cpu:
+                        raise EnvironmentError(
+                            "faster-whisper 程序未找到，请确保已经安装或下载（需要 PATH 中可用）。"
+                        )
+                    self.faster_whisper_program = resolved_cpu
+                    # CPU 版 faster-whisper 不支持 vad_method 参数
+                    self.vad_method = ""
+            elif self.device == "cuda":
+                resolved_xxl = _resolve_program("faster-whisper-xxl")
+                if not resolved_xxl:
+                    raise EnvironmentError(
+                        "faster-whisper-xxl 程序未找到，请确保已经安装或下载（需要 PATH 中可用）。"
+                    )
+                self.faster_whisper_program = resolved_xxl
+
+        # 兼容行为：当使用 CPU 版 faster-whisper（非 xxl）时，清空 vad_method
+        program_name = Path(str(self.faster_whisper_program)).name.lower()
+        if self.device == "cpu" and program_name.startswith("faster-whisper") and "xxl" not in program_name:
+            self.vad_method = ""
 
     def _build_command(self, audio_input: str) -> List[str]:
         """Build command line arguments for faster-whisper."""

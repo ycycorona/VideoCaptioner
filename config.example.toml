@@ -1,0 +1,70 @@
+[paths]
+# CLI 运行时输出/中间产物目录
+work_dir = "./work-dir"
+
+[transcribe]
+# 可选: BIJIAN / JIANYING / WHISPER_API / FASTER_WHISPER / WHISPER_CPP
+model = "FASTER_WHISPER"
+language = "en"
+need_word_time_stamp = true
+# SRT / ASS / VTT / TXT / ALL
+output_format = "SRT"
+
+[transcribe.faster_whisper]
+# 建议 CUDA 服务器使用 xxl GPU 版本（需要 faster-whisper-xxl 在 PATH 或提供 program 路径）
+device = "cuda"          # cuda / cpu
+model = "large-v3"       # tiny/base/small/medium/large-v1/large-v2/large-v3/large-v3-turbo
+model_dir = "./AppData/models"
+vad_filter = true
+vad_method = "silero_v4" # 例如 silero_v4 / pyannote_v3 ...
+vad_threshold = 0.4
+ff_mdx_kim2 = false
+one_word = true
+prompt = ""
+# 可选：显式指定可执行文件路径或名字（如果不在 PATH 里推荐用绝对路径）
+# program = "/usr/local/bin/faster-whisper-xxl"
+
+[subtitle]
+need_split = true
+need_optimize = true
+need_translate = true
+
+# OPENAI / BING / GOOGLE / DEEPLX
+translator_service = "OPENAI"
+
+# TargetLanguage 枚举名（见 app/core/translate/types.py）
+target_language = "SIMPLIFIED_CHINESE"
+
+# TRANSLATE_ON_TOP / ORIGINAL_ON_TOP / ONLY_ORIGINAL / ONLY_TRANSLATE
+subtitle_layout = "TRANSLATE_ON_TOP"
+
+thread_num = 8
+batch_size = 5
+max_word_count_cjk = 25
+max_word_count_english = 20
+custom_prompt_text = ""
+
+# 字幕样式（ASS 用），二选一：
+subtitle_style_name = "default"
+# subtitle_style_file = "/path/to/style.txt"
+
+[llm]
+# LLM 用于：字幕断句（word timestamp -> sentence）、字幕优化、LLM 翻译
+base_url = "https://api.openai.com/v1"
+api_key = "sk-..."
+model = "gpt-4o-mini"
+reflect = true
+
+[synthesis]
+need_video = true
+soft_subtitle = false
+# ULTRA_HIGH / HIGH / MEDIUM / LOW
+video_quality = "MEDIUM"
+
+# 可选：在同一个 config 里写多个 profile，然后用 --profile 选择
+#[profiles.gpu_zh]
+#[profiles.gpu_zh.transcribe]
+#language = "zh"
+#[profiles.gpu_zh.subtitle]
+#target_language = "SIMPLIFIED_CHINESE"
+
