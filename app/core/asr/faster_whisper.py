@@ -62,7 +62,7 @@ class FasterWhisperASR(BaseASR):
         self.language = language
         self.device = device
         self.output_dir = output_dir
-        self.output_format = output_format
+        self.output_format = output_format.lower()
 
         # VAD 参数
         self.vad_filter = vad_filter
@@ -150,7 +150,9 @@ class FasterWhisperASR(BaseASR):
         if self.device == "cpu" and program_name.startswith("faster-whisper") and "xxl" not in program_name:
             self.vad_method = ""
 
-    def _build_command(self, audio_input: str) -> List[str]:
+    def _build_command(
+        self, audio_input: str, output_dir: Optional[Union[str, Path]] = None
+    ) -> List[str]:
         """Build command line arguments for faster-whisper."""
 
         cmd = [
@@ -178,8 +180,9 @@ class FasterWhisperASR(BaseASR):
         )
 
         # 输出目录
-        if self.output_dir:
-            cmd.extend(["-o", str(self.output_dir)])
+        out_dir = output_dir if output_dir is not None else self.output_dir
+        if out_dir:
+            cmd.extend(["-o", str(out_dir)])
         else:
             cmd.extend(["-o", "source"])
 
@@ -277,7 +280,9 @@ class FasterWhisperASR(BaseASR):
         with tempfile.TemporaryDirectory() as temp_path:
             temp_dir = Path(temp_path)
             wav_path = temp_dir / "audio.wav"
-            output_path = wav_path.with_suffix(".srt")
+            output_dir = Path(self.output_dir).expanduser().resolve() if self.output_dir else temp_dir
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = output_dir / f"{wav_path.stem}.{self.output_format}"
 
             if isinstance(self.audio_input, str):
                 shutil.copy2(self.audio_input, wav_path)
@@ -287,7 +292,7 @@ class FasterWhisperASR(BaseASR):
                 else:
                     raise ValueError("No audio data available")
 
-            cmd = self._build_command(str(wav_path))
+            cmd = self._build_command(str(wav_path), output_dir=output_dir)
 
             logger.info("Faster Whisper command: %s", " ".join(cmd))
             callback(*ASRStatus.TRANSCRIBING.with_progress(5))
@@ -306,8 +311,7 @@ class FasterWhisperASR(BaseASR):
             reader = StreamReader(self.process)
             reader.start_reading()
 
-            is_finish = False
-            error_msg = ""
+            error_lines = []
 
             # 实时处理输出
             while True:
@@ -332,27 +336,27 @@ class FasterWhisperASR(BaseASR):
                         # 解析进度百分比
                         if match := re.search(r"(\d+)%", line):
                             progress = int(match.group(1))
-                            if progress == 100:
-                                is_finish = True
                             mapped_progress = int(5 + (progress * 0.9))
                             callback(mapped_progress, f"{mapped_progress} %")
                         if "Subtitles are written to" in line:
-                            is_finish = True
                             callback(*ASRStatus.COMPLETED.callback_tuple())
                         if "error" in line or "Error" in line:
-                            error_msg += line
+                            error_lines.append(line)
                             logger.error(line)
                         else:
                             logger.info(line)
 
-            if not is_finish:
+            returncode = self.process.returncode
+            if returncode != 0:
+                error_msg = "; ".join(error_lines) or f"Faster Whisper exited with code {returncode}"
                 logger.error("Faster Whisper 错误: %s", error_msg)
                 raise RuntimeError(error_msg)
 
             # 判断是否识别成功
             if not output_path.exists():
-                logger.info("Faster Whisper 返回值: %s", self.process.returncode)
-                raise RuntimeError(f"Faster Whisper 输出文件不存在: {output_path}")
+                error_msg = "; ".join(error_lines) or f"Faster Whisper 输出文件不存在: {output_path}"
+                logger.error("Faster Whisper 错误: %s", error_msg)
+                raise RuntimeError(error_msg)
 
             logger.info("Faster Whisper ASR completed")
 
