@@ -1,6 +1,8 @@
 [paths]
 # CLI 运行时输出/中间产物目录
 work_dir = "./work-dir"
+# 运行完成后，把最终字幕产物复制到输入文件所在目录（同名不同扩展）
+copy_to_input_dir = true
 
 [transcribe]
 # 可选: BIJIAN / JIANYING / WHISPER_API / FASTER_WHISPER / WHISPER_CPP

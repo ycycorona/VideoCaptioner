@@ -62,3 +62,5 @@ docs/.vitepress/cache/
 docs/.vitepress/dist/
 /package-lock.json
 !docs/package-lock.json
+
+config.toml

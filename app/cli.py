@@ -15,6 +15,7 @@ import argparse
 import glob
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -486,6 +487,7 @@ def build_synthesis_config(cfg: Dict[str, Any]) -> SynthesisConfig:
 @dataclass(frozen=True)
 class RuntimePaths:
     work_dir: Path
+    copy_to_input_dir: bool
 
     @staticmethod
     def from_cfg(cfg: Dict[str, Any]) -> "RuntimePaths":
@@ -497,7 +499,8 @@ class RuntimePaths:
         work_dir_raw = _get_str(paths_cfg, "work_dir", str(WORK_PATH))
         work_dir = Path(work_dir_raw).expanduser().resolve()
         work_dir.mkdir(parents=True, exist_ok=True)
-        return RuntimePaths(work_dir=work_dir)
+        copy_to_input_dir = _get_bool(paths_cfg, "copy_to_input_dir", True)
+        return RuntimePaths(work_dir=work_dir, copy_to_input_dir=copy_to_input_dir)
 
 
 def _default_run_dir(work_dir: Path, input_path: str) -> Path:
@@ -505,6 +508,32 @@ def _default_run_dir(work_dir: Path, input_path: str) -> Path:
     run_dir = work_dir / stem
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
+
+
+def _copy_outputs_to_input_dir(output_paths: Iterable[Path], input_path: str) -> None:
+    in_path = Path(input_path).expanduser().resolve()
+    if not in_path.exists():
+        logger.warning("Input path not found; skip copy: %s", in_path)
+        return
+    dest_dir = in_path.parent
+    for out_path in output_paths:
+        try:
+            out_path = Path(out_path).expanduser().resolve()
+            if not out_path.exists():
+                logger.warning("Output not found; skip copy: %s", out_path)
+                continue
+            dest = dest_dir / f"{in_path.stem}{out_path.suffix}"
+            if dest.resolve() == out_path.resolve():
+                logger.info("Output already in input dir: %s", dest)
+                continue
+            if dest.resolve() == in_path.resolve():
+                logger.warning("Copy target equals input file; skip: %s", dest)
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(out_path, dest)
+            logger.info("Copied output to input dir: %s -> %s", out_path, dest)
+        except Exception as e:
+            logger.warning("Copy output failed: %s (%s)", out_path, e)
 
 
 def _progress_printer(prefix: str):
@@ -556,6 +585,7 @@ def _count_text_stats(texts: Sequence[str]) -> tuple[int, int]:
 class TranscribeRunResult:
     input_path: str
     srt_path: Path
+    output_paths: Tuple[Path, ...]
     audio_duration_sec: Optional[float]
     segment_count: int
     char_count: int
@@ -645,10 +675,12 @@ def run_transcribe(
 
         # Export
         srt_path: Optional[Path] = None
+        output_paths: list[Path] = []
         for ext in sorted(set(formats_to_export)):
             out_path = output_base.with_suffix(f".{ext}")
             asr_data.save(str(out_path))
             logger.info("Saved %s: %s", ext.upper(), out_path)
+            output_paths.append(out_path)
             if ext == "srt":
                 srt_path = out_path
 
@@ -657,6 +689,7 @@ def run_transcribe(
             srt_path = output_base.with_suffix(".srt")
             asr_data.save(str(srt_path))
             logger.info("Saved SRT: %s", srt_path)
+            output_paths.append(srt_path)
 
         audio_duration = _get_wav_duration_seconds(temp_audio_path)
         texts = [seg.text for seg in asr_data.segments]
@@ -664,6 +697,7 @@ def run_transcribe(
         result = TranscribeRunResult(
             input_path=str(in_path),
             srt_path=srt_path,
+            output_paths=tuple(output_paths),
             audio_duration_sec=audio_duration,
             segment_count=len(asr_data.segments),
             char_count=char_count,
@@ -1077,6 +1111,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         output_base=output_base,
                         ensure_srt_for_next=False,
                     )
+                    if paths.copy_to_input_dir:
+                        _copy_outputs_to_input_dir(result.output_paths, input_path)
                     total_elapsed_sec += result.elapsed_total_sec
                     if result.audio_duration_sec is not None:
                         total_audio_sec += result.audio_duration_sec
@@ -1103,7 +1139,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.cmd == "subtitle":
             run_dir = _resolve_run_dir(paths, args.input, args.run_dir)
             scfg = build_subtitle_config(cfg)
-            run_subtitle(
+            out_path = run_subtitle(
                 subtitle_path=args.input,
                 subtitle_config=scfg,
                 run_dir=run_dir,
@@ -1112,6 +1148,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 skip_llm_check=args.skip_llm_check,
                 export_layouts=args.export_layouts,
             )
+            if paths.copy_to_input_dir:
+                copy_base = args.video if args.video else args.input
+                _copy_outputs_to_input_dir([out_path], copy_base)
             return 0
 
         if args.cmd == "synthesize":
@@ -1179,6 +1218,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         skip_llm_check=args.skip_llm_check,
                         export_layouts=args.export_layouts,
                     )
+                    if paths.copy_to_input_dir:
+                        _copy_outputs_to_input_dir([processed_sub_path], input_path)
 
                     output_video_path: Optional[str] = None
                     if output_dir is not None:
