@@ -1,8 +1,23 @@
 import logging
 import logging.handlers
+import os
 from pathlib import Path
+from typing import Optional
 
 from ...config import LOG_LEVEL, LOG_PATH
+
+DEFAULT_LOG_FILE = os.environ.get(
+    "VIDEOCAPTIONER_LOG_FILE", str(LOG_PATH / "app.log")
+)
+
+
+def _clear_handlers(logger: logging.Logger) -> None:
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass
 
 
 def setup_logger(
@@ -11,8 +26,9 @@ def setup_logger(
     info_fmt: str = "%(message)s",  # INFO级别使用简化格式
     default_fmt: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # 其他级别使用详细格式
     datefmt: str = "%Y-%m-%d %H:%M:%S",
-    log_file: str = str(LOG_PATH / "app.log"),
+    log_file: Optional[str] = None,
     console_output: bool = True,
+    force: bool = False,
 ) -> logging.Logger:
     """
     创建并配置一个日志记录器，INFO级别使用简化格式。
@@ -29,7 +45,13 @@ def setup_logger(
     logger = logging.getLogger(name)
     logger.setLevel(level)
 
+    if force:
+        _clear_handlers(logger)
+
     if not logger.handlers:
+        if log_file is None:
+            log_file = DEFAULT_LOG_FILE
+
         # 创建级别特定的格式化器
         class LevelSpecificFormatter(logging.Formatter):
             def format(self, record):
@@ -72,3 +94,28 @@ def setup_logger(
         logging.getLogger(lib).setLevel(logging.ERROR)
 
     return logger
+
+
+def configure_loggers(
+    log_file: Optional[str] = None,
+    console_output: Optional[bool] = None,
+    level: Optional[int] = None,
+) -> None:
+    global DEFAULT_LOG_FILE
+
+    if log_file is not None:
+        DEFAULT_LOG_FILE = log_file
+
+    resolved_log_file = DEFAULT_LOG_FILE if log_file is None else log_file
+    resolved_console = True if console_output is None else console_output
+    resolved_level = LOG_LEVEL if level is None else level
+
+    for name, obj in logging.Logger.manager.loggerDict.items():
+        if isinstance(obj, logging.Logger):
+            setup_logger(
+                name,
+                level=resolved_level,
+                log_file=resolved_log_file,
+                console_output=resolved_console,
+                force=True,
+            )

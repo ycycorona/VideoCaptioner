@@ -47,7 +47,7 @@ from app.core.entities import (
     WhisperModelEnum,
 )
 from app.core.translate.types import TargetLanguage
-from app.core.utils.logger import setup_logger
+from app.core.utils.logger import configure_loggers, setup_logger
 from app.core.utils.video_utils import video2audio
 
 logger = setup_logger("videocaptioner_cli")
@@ -297,6 +297,22 @@ def _apply_llm_env(llm_cfg: Dict[str, Any]) -> Tuple[str, str, str, bool]:
     if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
     return base_url, api_key, model, reflect
+
+
+def _resolve_log_file(cfg: Dict[str, Any], cli_log_file: Optional[str]) -> Optional[str]:
+    if cli_log_file:
+        return str(Path(cli_log_file).expanduser())
+
+    logging_cfg = cfg.get("logging", {})
+    if logging_cfg is None:
+        return None
+    if not isinstance(logging_cfg, dict):
+        raise ValueError("Config [logging] must be a table")
+
+    log_file = _get_str(logging_cfg, "log_file", "")
+    if not log_file:
+        return None
+    return str(Path(log_file).expanduser())
 
 
 def build_transcribe_config(cfg: Dict[str, Any]) -> TranscribeConfig:
@@ -952,6 +968,11 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Disable all caches (ASR/translate/LLM) for this run",
     )
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        help="Log file path (overrides [logging].log_file)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1064,14 +1085,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    cfg = load_config(args.config, args.profile)
+    log_file = _resolve_log_file(cfg, args.log_file)
+    if log_file is not None:
+        configure_loggers(log_file=log_file)
+        logger.info("Log file set to: %s", log_file)
+    paths = RuntimePaths.from_cfg(cfg)
+
     if getattr(args, "no_cache", False):
         from app.core.utils.cache import disable_cache
 
         disable_cache()
         logger.info("Cache disabled for this run (--no-cache)")
-
-    cfg = load_config(args.config, args.profile)
-    paths = RuntimePaths.from_cfg(cfg)
 
     try:
         if args.cmd == "transcribe":
